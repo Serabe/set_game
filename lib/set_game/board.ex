@@ -15,6 +15,17 @@ defmodule SetGame.Board do
   end
 
   @doc """
+  Generates the next move replacing the given positions.
+  Rules are not enforced at this level.
+  """
+  def move(%SetGame.Board{table: table} = board, {_, _, _} = positions) do
+    new_table =
+      positions |> Tuple.to_list() |> Enum.reduce(table, &List.update_at(&2, &1, fn _ -> nil end))
+
+    deal(%{board | table: new_table})
+  end
+
+  @doc """
   Deals cards from the top of the deck
 
   ## Example
