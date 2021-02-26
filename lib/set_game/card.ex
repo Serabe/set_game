@@ -49,18 +49,14 @@ defmodule SetGame.Card do
       false
   """
   def are_set?(card_a, card_b, card_c) do
-    Enum.zip([
-      num_to_props(card_a),
-      num_to_props(card_b),
-      num_to_props(card_c)
-    ])
+    [card_a, card_b, card_c]
+    |> Enum.map(&num_to_props/1)
+    |> Enum.zip()
     |> Enum.all?(&are_props_a_set?/1)
   end
 
-  defp are_props_a_set?({a, a, a}), do: true
-
   defp are_props_a_set?({a, b, c}) do
-    a != b && b != c && c != a
+    rem(a + b + c, 3) === 0
   end
 
   defp num_to_props(n) do

@@ -13,9 +13,9 @@ defmodule SetGame.MatchTest do
         }
       }
 
-      assert {:invalid_input, match} = Match.move(match, {0, 1, 10})
-      assert {:invalid_input, match} = Match.move(match, {0, 10, 1})
-      assert {:invalid_input, match} = Match.move(match, {10, 1, 4})
+      assert {:invalid_input, _match} = Match.move(match, {0, 1, 10})
+      assert {:invalid_input, _match} = Match.move(match, {0, 10, 1})
+      assert {:invalid_input, _match} = Match.move(match, {10, 1, 4})
     end
 
     test "with positions without cards, return {:invalid_input, match}" do
@@ -26,9 +26,9 @@ defmodule SetGame.MatchTest do
         }
       }
 
-      assert {:invalid_input, match} = Match.move(match, {0, 2, 7})
-      assert {:invalid_input, match} = Match.move(match, {0, 1, 4})
-      assert {:invalid_input, match} = Match.move(match, {5, 1, 8})
+      assert {:invalid_input, _match} = Match.move(match, {0, 2, 7})
+      assert {:invalid_input, _match} = Match.move(match, {0, 1, 4})
+      assert {:invalid_input, _match} = Match.move(match, {5, 1, 8})
     end
 
     test "if positions form a set, return {:set, new_match, [some_cards]}" do
@@ -81,7 +81,7 @@ defmodule SetGame.MatchTest do
         }
       }
 
-      assert {:invalid_move, match} = Match.move(match, {9, 10, 11})
+      assert {:invalid_move, _match} = Match.move(match, {9, 10, 11})
     end
   end
 end
