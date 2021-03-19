@@ -18,9 +18,15 @@ defmodule SetGame.Board do
   Generates the next move replacing the given positions.
   Rules are not enforced at this level.
   """
-  def move(%SetGame.Board{table: table} = board, {_, _, _} = positions) do
+  def move(%SetGame.Board{table: table} = board, [_, _, _] = cards) do
     new_table =
-      positions |> Tuple.to_list() |> Enum.reduce(table, &List.update_at(&2, &1, fn _ -> nil end))
+      Enum.map(table, fn el ->
+        if Enum.member?(cards, el) do
+          nil
+        else
+          el
+        end
+      end)
 
     deal(%{board | table: new_table})
   end
@@ -43,6 +49,10 @@ defmodule SetGame.Board do
     }
   end
 
+  def add_cards(%__MODULE__{table: table} = board, cards) do
+    %{board | table: update_table(table, cards)}
+  end
+
   defp update_table(table, new_elements) do
     Enum.reduce(new_elements, table, &add_element_to_table/2)
   end
@@ -63,5 +73,9 @@ defmodule SetGame.Board do
       # Otherwise we complete to 12 cards
       true -> 12 - cards_on_table
     end
+  end
+
+  def cards_are_on_table?(%__MODULE__{} = board, cards \\ []) do
+    Enum.all?(cards, &Enum.member?(board.table, &1))
   end
 end

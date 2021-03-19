@@ -118,16 +118,16 @@ defmodule SetGame.BoardTest do
   end
 
   describe "#move" do
-    test "changes the cards at the given positions" do
+    test "changes the given cards" do
       board = %Board{
         deck: Enum.to_list(1..10),
         table: Enum.to_list(11..22)
       }
 
-      after_move = Board.move(board, {5, 9, 1})
+      after_move = Board.move(board, [12, 17, 15])
 
       assert after_move.deck == Enum.to_list(4..10)
-      assert after_move.table == [11, 1, 13, 14, 15, 2, 17, 18, 19, 3, 21, 22]
+      assert after_move.table == [11, 1, 13, 14, 2, 16, 3, 18, 19, 20, 21, 22]
     end
   end
 end
