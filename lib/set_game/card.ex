@@ -48,15 +48,13 @@ defmodule SetGame.Card do
       ...> )
       false
   """
+  def are_set?(card_a, card_a, card_a), do: false
+
   def are_set?(card_a, card_b, card_c) do
-    if card_a == card_b || card_b == card_c || card_c == card_a do
-      false
-    else
-      [card_a, card_b, card_c]
-      |> Enum.map(&num_to_props/1)
-      |> Enum.zip()
-      |> Enum.all?(&are_props_a_set?/1)
-    end
+    [card_a, card_b, card_c]
+    |> Enum.map(&num_to_props/1)
+    |> Enum.zip()
+    |> Enum.all?(&are_props_a_set?/1)
   end
 
   defp are_props_a_set?({a, b, c}) do

@@ -86,12 +86,13 @@ defmodule SetGame.GameServer do
     {:reply, find_player_by_id(state, id), state}
   end
 
-  def handle_call(:start_game, _from, %State{state: :players_joining, players: players} = state) do
-    if length(players) > 0 do
-      {:reply, :ok, %{state | state: :playing, board: Board.deal(state.board, 12)}}
-    else
-      {:reply, {:error, :no_players}, state}
-    end
+  def handle_call(:start_game, _from, %State{state: :players_joining, players: players} = state)
+      when length(players) > 0 do
+    {:reply, :ok, %{state | state: :playing, board: Board.deal(state.board, 12)}}
+  end
+
+  def handle_call(:start_game, _from, %State{state: :players_joining} = state) do
+    {:reply, {:error, :no_players}, state}
   end
 
   def handle_call(:start_game, _from, state) do
