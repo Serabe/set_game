@@ -111,54 +111,56 @@ defmodule SetGame.GameServer do
          true <- Board.cards_are_on_table?(state.board, cards),
          true <- SetGame.Card.are_set?(card_a, card_b, card_c) do
       {:reply, :ok,
-       %{
-         state
-         | state: :playing,
-           board: Board.move(state.board, cards),
-           players: add_cards_to_player(state.players, player_id, cards)
-       }}
+       state
+       |> Map.put(:state, :playing)
+       |> board_move(cards)
+       |> add_cards_to_player(player_id, cards)}
     else
       nil ->
         {:reply, {:error, :no_player_found}, state}
 
       false ->
-        {returned_cards, players} = return_cards_from_player(state.players, player_id, 1)
-
         {
           :reply,
           {:error, :wrong_move, player_id},
-          %{
-            state
-            | state: :playing,
-              players: players,
-              board: Board.add_cards(state.board, returned_cards)
-          }
+          state |> Map.put(:state, :playing) |> return_cards_from_player(player_id, 1)
         }
     end
   end
 
   def handle_call({:take_set, _, _}, _from, state), do: {:reply, {:error, :set_not_called}, state}
 
-  defp add_cards_to_player(players, player_id, cards) do
-    update_player(players, player_id, fn player ->
+  defp board_move(%State{} = state, cards), do: %{state | board: Board.move(state.board, cards)}
+
+  defp add_cards_to_player(%State{} = state, player_id, cards) do
+    update_player(state, player_id, fn player ->
       %{player | cards: cards ++ player.cards}
     end)
   end
 
-  defp return_cards_from_player(players, player_id, num_of_cards) do
+  defp return_cards_from_player(
+         %State{players: players, board: board} = state,
+         player_id,
+         num_of_cards
+       ) do
     player = find_player_by_id(players, player_id)
     {returned_cards, new_player} = Player.return_cards(player, num_of_cards)
 
-    {returned_cards, update_player(players, player_id, new_player)}
+    new_board = Board.add_cards(board, returned_cards)
+
+    state
+    |> update_player(player_id, new_player)
+    |> Map.put(:board, new_board)
   end
 
-  defp update_player(players, player_id, %Player{} = new_player) do
-    update_player(players, player_id, fn _ -> new_player end)
+  defp update_player(%State{} = state, player_id, %Player{} = new_player) do
+    update_player(state, player_id, fn _ -> new_player end)
   end
 
-  defp update_player(players, player_id, update_fn) do
+  defp update_player(%State{players: players} = state, player_id, update_fn) do
     player_idx = find_player_index(players, player_id)
-    List.update_at(players, player_idx, update_fn)
+    new_players = List.update_at(players, player_idx, update_fn)
+    %{state | players: new_players}
   end
 
   defp find_player_index(players, player_id) do
