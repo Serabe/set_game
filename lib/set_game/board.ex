@@ -1,6 +1,8 @@
 defmodule SetGame.Board do
   defstruct deck: [], table: []
 
+  alias SetGame.Card
+
   @doc """
   Generate a new board
 
@@ -9,7 +11,7 @@ defmodule SetGame.Board do
   """
   def new() do
     %SetGame.Board{
-      deck: Enum.shuffle(0..80),
+      deck: Enum.shuffle(Card.new_deck()),
       table: []
     }
   end
