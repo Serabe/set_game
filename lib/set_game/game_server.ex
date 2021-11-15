@@ -1,8 +1,10 @@
 defmodule SetGame.GameServer do
-  use GenServer
+  use GenServer, start: {__MODULE__, :start_link, []}, restart: :transient
 
   alias SetGame.Board
   alias SetGame.Player
+
+  @timeout 60 * 60 * 24 * 1_000
 
   defmodule State do
     defstruct board: Board.new(), players: [], state: :players_joining
@@ -10,28 +12,59 @@ defmodule SetGame.GameServer do
 
   # Client
 
-  def start_link(_arg \\ nil) do
-    GenServer.start_link(__MODULE__, %State{})
+  @spec start_link(any) :: :ignore | {:error, any} | {:ok, pid}
+  def start_link(name \\ via_tuple(find_available_name())) do
+    GenServer.start_link(__MODULE__, %State{}, name: name)
   end
 
-  def call_set(pid, %Player{id: player_id}) do
+  defp generate_name() do
+    symbols = '23456789ABCDEFGHJKMNPQRSTUWXYZ'
+    symbol_count = Enum.count(symbols)
+    for _ <- 1..10, into: "", do: <<Enum.at(symbols, floor(:rand.uniform() * symbol_count))>>
+  end
+
+  def find_available_name() do
+    name_candidate = generate_name()
+
+    case Registry.lookup(Registry.SetGame, name_candidate) do
+      [{_pid, _value}] -> find_available_name()
+      [] -> name_candidate
+    end
+  end
+
+  @spec via_tuple(any) :: {:via, Registry, {Registry.SetGame, any}}
+  def via_tuple(name), do: {:via, Registry, {Registry.SetGame, name}}
+
+  def call_set(pid, %Player{id: player_id}) when is_pid(pid) do
     GenServer.call(pid, {:call_set, player_id})
   end
 
-  def call_set(pid, player_id) do
+  def call_set(pid, player_id) when is_pid(pid) do
     GenServer.call(pid, {:call_set, player_id})
   end
 
-  def join(pid) do
+  def call_set(name, player_or_player_id) when is_binary(name) do
+    call_set(name |> via_tuple() |> GenServer.whereis(), player_or_player_id)
+  end
+
+  def join(pid) when is_pid(pid) do
     GenServer.call(pid, :join_player)
+  end
+
+  def join(name) when is_binary(name) do
+    join(name |> via_tuple() |> GenServer.whereis())
   end
 
   def player(pid, player_id) do
     GenServer.call(pid, {:player, player_id})
   end
 
-  def start_game(pid) do
+  def start_game(pid) when is_pid(pid) do
     GenServer.call(pid, :start_game)
+  end
+
+  def start_game(name) when is_binary(name) do
+    start_game(name |> via_tuple() |> GenServer.whereis())
   end
 
   def state(pid) do
@@ -48,7 +81,11 @@ defmodule SetGame.GameServer do
 
   # Server
   @impl true
-  def init(arg), do: {:ok, arg}
+  def init(arg), do: {:ok, arg, @timeout}
+
+  def child_spec(arg) do
+    %{id: __MODULE__, restart: :transient, start: {__MODULE__, :start_link, [arg]}}
+  end
 
   @impl true
   def handle_call(
@@ -58,49 +95,49 @@ defmodule SetGame.GameServer do
       ) do
     case find_player_by_id(state, player_id) do
       nil ->
-        {:reply, {:error, :no_player_found}, state}
+        {:reply, {:error, :no_player_found}, state, @timeout}
 
       player ->
-        {:reply, :ok, %{state | state: {:set_called, player.id}}}
+        {:reply, :ok, %{state | state: {:set_called, player.id}}, @timeout}
     end
   end
 
   def handle_call({:call_set, _player_id}, _from, state) do
-    {:reply, {:error, :cannot_call_set}, state}
+    {:reply, {:error, :cannot_call_set}, state, @timeout}
   end
 
   def handle_call(:get_state, _from, %State{state: game_state} = state) do
-    {:reply, game_state, state}
+    {:reply, game_state, state, @timeout}
   end
 
   def handle_call(:join_player, _from, %State{state: :players_joining} = state) do
     player = Player.new(length(state.players))
-    {:reply, player, %{state | players: [player | state.players]}}
+    {:reply, player, %{state | players: [player | state.players]}, @timeout}
   end
 
   def handle_call(:join_player, _from, state) do
-    {:reply, {:error, :no_new_players_allowed}, state}
+    {:reply, {:error, :no_new_players_allowed}, state, @timeout}
   end
 
   def handle_call({:player, id}, _form, state) do
-    {:reply, find_player_by_id(state, id), state}
+    {:reply, find_player_by_id(state, id), state, @timeout}
   end
 
   def handle_call(:start_game, _from, %State{state: :players_joining, players: players} = state)
       when length(players) > 0 do
-    {:reply, :ok, %{state | state: :playing, board: Board.deal(state.board, 12)}}
+    {:reply, :ok, %{state | state: :playing, board: Board.deal(state.board, 12)}, @timeout}
   end
 
   def handle_call(:start_game, _from, %State{state: :players_joining} = state) do
-    {:reply, {:error, :no_players}, state}
+    {:reply, {:error, :no_players}, state, @timeout}
   end
 
   def handle_call(:start_game, _from, state) do
-    {:reply, {:error, :already_started}, state}
+    {:reply, {:error, :already_started}, state, @timeout}
   end
 
   def handle_call(:table, _from, %State{board: board} = state) do
-    {:reply, board.table, state}
+    {:reply, board.table, state, @timeout}
   end
 
   def handle_call(
@@ -115,21 +152,28 @@ defmodule SetGame.GameServer do
        state
        |> Map.put(:state, :playing)
        |> board_move(cards)
-       |> add_cards_to_player(player_id, cards)}
+       |> add_cards_to_player(player_id, cards), @timeout}
     else
       nil ->
-        {:reply, {:error, :no_player_found}, state}
+        {:reply, {:error, :no_player_found}, state, @timeout}
 
       false ->
         {
           :reply,
           {:error, :wrong_move, player_id},
-          state |> Map.put(:state, :playing) |> return_cards_from_player(player_id, 1)
+          state |> Map.put(:state, :playing) |> return_cards_from_player(player_id, 1),
+          @timeout
         }
     end
   end
 
-  def handle_call({:take_set, _, _}, _from, state), do: {:reply, {:error, :set_not_called}, state}
+  def handle_call({:take_set, _, _}, _from, state),
+    do: {:reply, {:error, :set_not_called}, state, @timeout}
+
+  @impl true
+  def handle_info(:timeout, state_data) do
+    {:stop, {:shutdown, :timeout}, state_data}
+  end
 
   defp board_move(%State{} = state, cards), do: %{state | board: Board.move(state.board, cards)}
 
