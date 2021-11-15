@@ -98,7 +98,7 @@ defmodule SetGame.GameServer do
         {:reply, {:error, :no_player_found}, state, @timeout}
 
       player ->
-        {:reply, :ok, %{state | state: {:set_called, player.id}}, @timeout}
+        reply_success(%{state | state: {:set_called, player.id}})
     end
   end
 
@@ -107,12 +107,12 @@ defmodule SetGame.GameServer do
   end
 
   def handle_call(:get_state, _from, %State{state: game_state} = state) do
-    {:reply, game_state, state, @timeout}
+    reply_success(state, game_state)
   end
 
   def handle_call(:join_player, _from, %State{state: :players_joining} = state) do
     player = Player.new(length(state.players))
-    {:reply, player, %{state | players: [player | state.players]}, @timeout}
+    reply_success(%{state | players: [player | state.players]}, player)
   end
 
   def handle_call(:join_player, _from, state) do
@@ -120,12 +120,12 @@ defmodule SetGame.GameServer do
   end
 
   def handle_call({:player, id}, _form, state) do
-    {:reply, find_player_by_id(state, id), state, @timeout}
+    reply_success(state, find_player_by_id(state, id))
   end
 
   def handle_call(:start_game, _from, %State{state: :players_joining, players: players} = state)
       when length(players) > 0 do
-    {:reply, :ok, %{state | state: :playing, board: Board.deal(state.board, 12)}, @timeout}
+    reply_success(%{state | state: :playing, board: Board.deal(state.board, 12)})
   end
 
   def handle_call(:start_game, _from, %State{state: :players_joining} = state) do
@@ -137,7 +137,7 @@ defmodule SetGame.GameServer do
   end
 
   def handle_call(:table, _from, %State{board: board} = state) do
-    {:reply, board.table, state, @timeout}
+    reply_success(state, board.table)
   end
 
   def handle_call(
@@ -148,11 +148,11 @@ defmodule SetGame.GameServer do
     with %Player{} <- find_player_by_id(state, player_id),
          true <- Board.cards_are_on_table?(state.board, cards),
          true <- SetGame.Card.are_set?(card_a, card_b, card_c) do
-      {:reply, :ok,
-       state
-       |> Map.put(:state, :playing)
-       |> board_move(cards)
-       |> add_cards_to_player(player_id, cards), @timeout}
+      state
+      |> Map.put(:state, :playing)
+      |> board_move(cards)
+      |> add_cards_to_player(player_id, cards)
+      |> reply_success()
     else
       nil ->
         {:reply, {:error, :no_player_found}, state, @timeout}
@@ -173,6 +173,10 @@ defmodule SetGame.GameServer do
   @impl true
   def handle_info(:timeout, state_data) do
     {:stop, {:shutdown, :timeout}, state_data}
+  end
+
+  defp reply_success(new_state, response \\ :ok) do
+    {:reply, response, new_state, @timeout}
   end
 
   defp board_move(%State{} = state, cards), do: %{state | board: Board.move(state.board, cards)}
