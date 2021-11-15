@@ -95,7 +95,7 @@ defmodule SetGame.GameServer do
       ) do
     case find_player_by_id(state, player_id) do
       nil ->
-        {:reply, {:error, :no_player_found}, state, @timeout}
+        reply_error(state, {:error, :no_player_found})
 
       player ->
         reply_success(%{state | state: {:set_called, player.id}})
@@ -103,7 +103,7 @@ defmodule SetGame.GameServer do
   end
 
   def handle_call({:call_set, _player_id}, _from, state) do
-    {:reply, {:error, :cannot_call_set}, state, @timeout}
+    reply_error(state, {:error, :cannot_call_set})
   end
 
   def handle_call(:get_state, _from, %State{state: game_state} = state) do
@@ -116,7 +116,7 @@ defmodule SetGame.GameServer do
   end
 
   def handle_call(:join_player, _from, state) do
-    {:reply, {:error, :no_new_players_allowed}, state, @timeout}
+    reply_error(state, {:error, :no_new_players_allowed})
   end
 
   def handle_call({:player, id}, _form, state) do
@@ -129,11 +129,11 @@ defmodule SetGame.GameServer do
   end
 
   def handle_call(:start_game, _from, %State{state: :players_joining} = state) do
-    {:reply, {:error, :no_players}, state, @timeout}
+    reply_error(state, {:error, :no_players})
   end
 
   def handle_call(:start_game, _from, state) do
-    {:reply, {:error, :already_started}, state, @timeout}
+    reply_error(state, {:error, :already_started})
   end
 
   def handle_call(:table, _from, %State{board: board} = state) do
@@ -155,24 +155,26 @@ defmodule SetGame.GameServer do
       |> reply_success()
     else
       nil ->
-        {:reply, {:error, :no_player_found}, state, @timeout}
+        reply_error(state, {:error, :no_player_found})
 
       false ->
-        {
-          :reply,
-          {:error, :wrong_move, player_id},
+        reply_error(
           state |> Map.put(:state, :playing) |> return_cards_from_player(player_id, 1),
-          @timeout
-        }
+          {:error, :wrong_move, player_id}
+        )
     end
   end
 
   def handle_call({:take_set, _, _}, _from, state),
-    do: {:reply, {:error, :set_not_called}, state, @timeout}
+    do: reply_error(state, {:error, :set_not_called})
 
   @impl true
   def handle_info(:timeout, state_data) do
     {:stop, {:shutdown, :timeout}, state_data}
+  end
+
+  defp reply_error(new_state, response) do
+    {:reply, response, new_state, @timeout}
   end
 
   defp reply_success(new_state, response \\ :ok) do
