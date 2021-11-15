@@ -5,7 +5,7 @@ defmodule SetGame.GameSupervisorTest do
   alias SetGame.{GameServer, GameSupervisor}
 
   def game_alive?(name) do
-    case name |> GameServer.via_tuple() |> GenServer.whereis() do
+    case name |> GenServer.whereis() do
       nil -> false
       pid -> Process.alive?(pid)
     end
@@ -36,6 +36,36 @@ defmodule SetGame.GameSupervisorTest do
       {:ok, name2} = GameSupervisor.start_game()
 
       refute name1 == name2
+
+      GameSupervisor.stop_game(name1)
+      GameSupervisor.stop_game(name2)
+    end
+  end
+
+  describe "#stop_game" do
+    test "stops the game process" do
+      {:ok, name1} = GameSupervisor.start_game()
+
+      assert game_alive?(name1)
+
+      GameSupervisor.stop_game(name1)
+
+      refute game_alive?(name1)
+    end
+
+    test "only stops the given game process" do
+      {:ok, name1} = GameSupervisor.start_game()
+      {:ok, name2} = GameSupervisor.start_game()
+
+      assert game_alive?(name1)
+      assert game_alive?(name2)
+
+      GameSupervisor.stop_game(name1)
+
+      refute game_alive?(name1)
+      assert game_alive?(name2)
+
+      GameSupervisor.stop_game(name2)
     end
   end
 end

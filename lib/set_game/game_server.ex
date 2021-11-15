@@ -1,6 +1,5 @@
 defmodule SetGame.GameServer do
   use GenServer, start: {__MODULE__, :start_link, []}, restart: :transient
-
   alias SetGame.Board
   alias SetGame.Player
 
@@ -32,39 +31,34 @@ defmodule SetGame.GameServer do
     end
   end
 
+  def get_uniq_name({:via, _, {_, name}}), do: name
+
+  def get_uniq_name(pid) when is_pid(pid) do
+    Registry.keys(Registry.SetGame, pid)
+    |> Enum.at(0)
+  end
+
   @spec via_tuple(any) :: {:via, Registry, {Registry.SetGame, any}}
   def via_tuple(name), do: {:via, Registry, {Registry.SetGame, name}}
 
-  def call_set(pid, %Player{id: player_id}) when is_pid(pid) do
+  def call_set(pid, %Player{id: player_id}) do
     GenServer.call(pid, {:call_set, player_id})
   end
 
-  def call_set(pid, player_id) when is_pid(pid) do
+  def call_set(pid, player_id) do
     GenServer.call(pid, {:call_set, player_id})
   end
 
-  def call_set(name, player_or_player_id) when is_binary(name) do
-    call_set(name |> via_tuple() |> GenServer.whereis(), player_or_player_id)
-  end
-
-  def join(pid) when is_pid(pid) do
+  def join(pid) do
     GenServer.call(pid, :join_player)
-  end
-
-  def join(name) when is_binary(name) do
-    join(name |> via_tuple() |> GenServer.whereis())
   end
 
   def player(pid, player_id) do
     GenServer.call(pid, {:player, player_id})
   end
 
-  def start_game(pid) when is_pid(pid) do
+  def start_game(pid) do
     GenServer.call(pid, :start_game)
-  end
-
-  def start_game(name) when is_binary(name) do
-    start_game(name |> via_tuple() |> GenServer.whereis())
   end
 
   def state(pid) do

@@ -4,11 +4,11 @@ defmodule SetGame.GameSupervisor do
   alias SetGame.GameServer
 
   def start_game() do
-    name = GameServer.find_available_name()
+    name = GameServer.find_available_name() |> GameServer.via_tuple()
 
     case DynamicSupervisor.start_child(
            __MODULE__,
-           GameServer.child_spec(GameServer.via_tuple(name))
+           GameServer.child_spec(name)
          ) do
       {:ok, _pid, _info} -> {:ok, name}
       {:ok, _pid} -> {:ok, name}
@@ -20,9 +20,11 @@ defmodule SetGame.GameSupervisor do
     DynamicSupervisor.terminate_child(__MODULE__, pid_from_name(name))
   end
 
-  defp pid_from_name(name) do
-    name |> GameServer.via_tuple() |> GenServer.whereis()
-  end
+  defp pid_from_name({:via, _, {_, name}}),
+    do: pid_from_name(name)
+
+  defp pid_from_name(name) when is_binary(name),
+    do: name |> GameServer.via_tuple() |> GenServer.whereis()
 
   def start_link(_options) do
     DynamicSupervisor.start_link(__MODULE__, :ok, name: __MODULE__)

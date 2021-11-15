@@ -288,4 +288,17 @@ defmodule SetGame.GameServerTest do
       assert {:set_called, player.id} == GameServer.state(pid)
     end
   end
+
+  describe "#get_uniq_name" do
+    test "returns the uniq name for a via tuple" do
+      assert "hola" == GameServer.get_uniq_name(GameServer.via_tuple("hola"))
+    end
+
+    test "returns the uniq name for a pid" do
+      {:ok, pid} = GameServer.start_link(GameServer.via_tuple("hola"))
+      assert is_pid(pid)
+
+      assert "hola" == GameServer.get_uniq_name(pid)
+    end
+  end
 end
