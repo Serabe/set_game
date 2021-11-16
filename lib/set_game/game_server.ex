@@ -6,14 +6,21 @@ defmodule SetGame.GameServer do
   @timeout 60 * 60 * 24 * 1_000
 
   defmodule State do
-    defstruct board: Board.new(), players: [], state: :players_joining
+    defstruct board: Board.new(),
+              name: "",
+              players: [],
+              state: :players_joining
   end
 
   # Client
 
-  @spec start_link(any) :: :ignore | {:error, any} | {:ok, pid}
-  def start_link(name \\ via_tuple(find_available_name())) do
-    GenServer.start_link(__MODULE__, %State{}, name: name)
+  @spec start_link(any()) :: :ignore | {:error, any} | {:ok, pid}
+  def start_link({:via, _, {_, name}} = via_tuple_name \\ via_tuple(find_available_name())) do
+    GenServer.start_link(__MODULE__, fresh_state(name), name: via_tuple_name)
+  end
+
+  defp fresh_state(name) do
+    %State{name: name}
   end
 
   defp generate_name() do
@@ -75,7 +82,10 @@ defmodule SetGame.GameServer do
 
   # Server
   @impl true
-  def init(arg), do: {:ok, arg, @timeout}
+  def init(%State{name: name}) do
+    send(self(), {:set_state, name})
+    {:ok, fresh_state(name), @timeout}
+  end
 
   def child_spec(arg) do
     %{id: __MODULE__, restart: :transient, start: {__MODULE__, :start_link, [arg]}}
@@ -163,6 +173,17 @@ defmodule SetGame.GameServer do
     do: reply_error(state, {:error, :set_not_called})
 
   @impl true
+  def handle_info({:set_state, name}, _state_data) do
+    state_data =
+      case :ets.lookup(:set_game_state, name) do
+        [] -> fresh_state(name)
+        [{_key, state}] -> state
+      end
+
+    :ets.insert(:set_game_state, {name, state_data})
+    {:noreply, state_data, @timeout}
+  end
+
   def handle_info(:timeout, state_data) do
     {:stop, {:shutdown, :timeout}, state_data}
   end
@@ -172,6 +193,7 @@ defmodule SetGame.GameServer do
   end
 
   defp reply_success(new_state, response \\ :ok) do
+    :ets.insert(:set_game_state, {new_state.name, new_state})
     {:reply, response, new_state, @timeout}
   end
 
