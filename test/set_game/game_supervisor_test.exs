@@ -67,5 +67,18 @@ defmodule SetGame.GameSupervisorTest do
 
       GameSupervisor.stop_game(name2)
     end
+
+    test "stop persisting data once we stop a game" do
+      {:ok, name} = GameSupervisor.start_game()
+      uniq_name = GameServer.get_uniq_name(name)
+
+      assert game_alive?(name)
+      assert [_result] = :ets.lookup(:set_game_state, uniq_name)
+
+      GameSupervisor.stop_game(name)
+
+      refute game_alive?(name)
+      assert [] = :ets.lookup(:set_game_state, uniq_name)
+    end
   end
 end

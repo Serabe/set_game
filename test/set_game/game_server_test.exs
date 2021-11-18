@@ -132,8 +132,7 @@ defmodule SetGame.GameServerTest do
       %Player{id: id} = GameServer.join(pid)
       GameServer.start_game(pid)
 
-      table = GameServer.table(pid)
-      set = Enum.at(find_set(table), 0)
+      set = find_set(pid)
 
       assert {:error, :set_not_called} = GameServer.take_set(pid, id, set)
     end
@@ -144,8 +143,7 @@ defmodule SetGame.GameServerTest do
       %Player{id: id_b} = GameServer.join(pid)
       GameServer.start_game(pid)
 
-      table = GameServer.table(pid)
-      set = Enum.at(find_set(table), 0)
+      set = find_set(pid)
 
       :ok = GameServer.call_set(pid, id_a)
       assert {:error, :set_not_called} = GameServer.take_set(pid, id_b, set)
@@ -169,8 +167,7 @@ defmodule SetGame.GameServerTest do
       %Player{id: id} = GameServer.join(pid)
       GameServer.start_game(pid)
 
-      table = GameServer.table(pid)
-      set = Enum.at(find_set(table), 0)
+      set = find_set(pid)
 
       :ok = GameServer.call_set(pid, id)
       :ok = GameServer.take_set(pid, id, set)
@@ -178,6 +175,7 @@ defmodule SetGame.GameServerTest do
       player = GameServer.player(pid, id)
       assert 3 = SetGame.Player.score(player)
 
+      table = GameServer.table(pid)
       card_not_on_table = Enum.find(1..81, fn el -> !Enum.member?(table, el) end)
 
       :ok = GameServer.call_set(pid, id)
@@ -206,8 +204,7 @@ defmodule SetGame.GameServerTest do
       %Player{id: id} = GameServer.join(pid)
       GameServer.start_game(pid)
 
-      table = GameServer.table(pid)
-      set = Enum.at(find_set(table), 0)
+      set = find_set(pid)
 
       :ok = GameServer.call_set(pid, id)
       :ok = GameServer.take_set(pid, id, set)
@@ -231,9 +228,9 @@ defmodule SetGame.GameServerTest do
       %Player{id: id} = GameServer.join(pid)
       GameServer.start_game(pid)
       :ok = GameServer.call_set(pid, id)
-
       table = GameServer.table(pid)
-      set = Enum.at(find_set(table), 0)
+
+      set = find_set(pid)
 
       assert :ok = GameServer.take_set(pid, id, set)
       assert :playing = GameServer.state(pid)
@@ -246,12 +243,24 @@ defmodule SetGame.GameServerTest do
       assert Enum.all?(old_table_without_set, fn el -> Enum.member?(new_table, el) end)
     end
 
-    defp find_set(table) do
-      for card_a <- table,
-          card_b <- table,
-          card_c <- table,
-          SetGame.Card.are_set?(card_a, card_b, card_c),
-          do: [card_a, card_b, card_c]
+    defp find_set(pid) do
+      table = GameServer.table(pid)
+
+      sets =
+        for card_a <- table,
+            card_b <- table,
+            card_c <- table,
+            SetGame.Card.are_set?(card_a, card_b, card_c),
+            do: [card_a, card_b, card_c]
+
+      case sets do
+        [] ->
+          GameServer.deal(pid, 3)
+          find_set(pid)
+
+        [first_set | _] ->
+          first_set
+      end
     end
 
     defp find_not_set(table) do
@@ -299,6 +308,51 @@ defmodule SetGame.GameServerTest do
       assert is_pid(pid)
 
       assert "hola" == GameServer.get_uniq_name(pid)
+    end
+  end
+
+  describe "when everything fails" do
+    test "data is persisted in ETS" do
+      {:ok, pid} = GameServer.start_link()
+      game_name = GameServer.get_uniq_name(pid)
+      %Player{id: id1} = GameServer.join(pid)
+      %Player{id: id2} = GameServer.join(pid)
+
+      assert [{_name, current_state}] = :ets.lookup(:set_game_state, game_name)
+
+      assert length(current_state.players) == 2
+      assert Enum.map(current_state.players, fn %Player{id: id} -> id end) == [id2, id1]
+    end
+
+    test "if crashed, state is back there when restarted" do
+      Process.flag(:trap_exit, true)
+      {:ok, pid} = GameServer.start_link()
+      game_name = GameServer.get_uniq_name(pid)
+      %Player{id: id1} = GameServer.join(pid)
+      %Player{id: id2} = GameServer.join(pid)
+
+      Process.exit(pid, :kill)
+
+      refute Process.alive?(pid)
+
+      {:ok, _pid} = GameServer.start_link(GameServer.via_tuple(game_name))
+
+      assert [{_name, current_state}] = :ets.lookup(:set_game_state, game_name)
+
+      assert length(current_state.players) == 2
+      assert Enum.map(current_state.players, fn %Player{id: id} -> id end) == [id2, id1]
+    end
+
+    test "if timeout, everything gets removed from storage" do
+      Process.flag(:trap_exit, true)
+      {:ok, pid} = GameServer.start_link()
+      game_name = GameServer.get_uniq_name(pid)
+
+      assert [_register] = :ets.lookup(:set_game_state, game_name)
+
+      :timer.sleep(Application.get_env(:set_game, :timeout, 1_000))
+
+      assert [] = :ets.lookup(:set_game_state, game_name)
     end
   end
 end

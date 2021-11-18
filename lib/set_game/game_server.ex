@@ -3,8 +3,6 @@ defmodule SetGame.GameServer do
   alias SetGame.Board
   alias SetGame.Player
 
-  @timeout 60 * 60 * 24 * 1_000
-
   defmodule State do
     defstruct board: Board.new(),
               name: "",
@@ -18,6 +16,8 @@ defmodule SetGame.GameServer do
   def start_link({:via, _, {_, name}} = via_tuple_name \\ via_tuple(find_available_name())) do
     GenServer.start_link(__MODULE__, fresh_state(name), name: via_tuple_name)
   end
+
+  defp timeout(), do: Application.get_env(:set_game, :timeout)
 
   defp fresh_state(name) do
     %State{name: name}
@@ -56,6 +56,10 @@ defmodule SetGame.GameServer do
     GenServer.call(pid, {:call_set, player_id})
   end
 
+  def deal(pid, num_of_cards \\ 3) do
+    GenServer.call(pid, {:deal, num_of_cards})
+  end
+
   def join(pid) do
     GenServer.call(pid, :join_player)
   end
@@ -84,7 +88,7 @@ defmodule SetGame.GameServer do
   @impl true
   def init(%State{name: name}) do
     send(self(), {:set_state, name})
-    {:ok, fresh_state(name), @timeout}
+    {:ok, fresh_state(name), timeout()}
   end
 
   def child_spec(arg) do
@@ -108,6 +112,10 @@ defmodule SetGame.GameServer do
 
   def handle_call({:call_set, _player_id}, _from, state) do
     reply_error(state, {:error, :cannot_call_set})
+  end
+
+  def handle_call({:deal, num_of_cards}, _from, %State{board: board} = state) do
+    reply_success(%{state | board: Board.deal(board, num_of_cards)})
   end
 
   def handle_call(:get_state, _from, %State{state: game_state} = state) do
@@ -181,20 +189,28 @@ defmodule SetGame.GameServer do
       end
 
     :ets.insert(:set_game_state, {name, state_data})
-    {:noreply, state_data, @timeout}
+    {:noreply, state_data, timeout()}
   end
 
   def handle_info(:timeout, state_data) do
     {:stop, {:shutdown, :timeout}, state_data}
   end
 
+  @impl true
+  def terminate({:shutdown, :timeout}, state_data) do
+    :ets.delete(:set_game_state, state_data.name)
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
+
   defp reply_error(new_state, response) do
-    {:reply, response, new_state, @timeout}
+    {:reply, response, new_state, timeout()}
   end
 
   defp reply_success(new_state, response \\ :ok) do
     :ets.insert(:set_game_state, {new_state.name, new_state})
-    {:reply, response, new_state, @timeout}
+    {:reply, response, new_state, timeout()}
   end
 
   defp board_move(%State{} = state, cards), do: %{state | board: Board.move(state.board, cards)}
