@@ -10,11 +10,17 @@ defmodule SetGame.GameServer do
               state: :players_joining
   end
 
+  @symbols '23456789ABCDEFGHJKMNPQRSTUWXYZ'
+  @symbol_count length(@symbols)
+
   # Client
 
   @spec start_link(any()) :: :ignore | {:error, any} | {:ok, pid}
-  def start_link({:via, _, {_, name}} = via_tuple_name \\ via_tuple(find_available_name())) do
-    GenServer.start_link(__MODULE__, fresh_state(name), name: via_tuple_name)
+  def start_link({:via, _, {_, name}} = via_tuple_name \\ via_tuple(generate_name())) do
+    case GenServer.start_link(__MODULE__, fresh_state(name), name: via_tuple_name) do
+      {:error, {:already_started, _pid}} -> start_link()
+      other -> other
+    end
   end
 
   defp timeout(), do: Application.get_env(:set_game, :timeout)
@@ -24,18 +30,7 @@ defmodule SetGame.GameServer do
   end
 
   defp generate_name() do
-    symbols = '23456789ABCDEFGHJKMNPQRSTUWXYZ'
-    symbol_count = Enum.count(symbols)
-    for _ <- 1..10, into: "", do: <<Enum.at(symbols, floor(:rand.uniform() * symbol_count))>>
-  end
-
-  def find_available_name() do
-    name_candidate = generate_name()
-
-    case Registry.lookup(Registry.SetGame, name_candidate) do
-      [{_pid, _value}] -> find_available_name()
-      [] -> name_candidate
-    end
+    for _ <- 1..10, into: "", do: <<Enum.at(@symbols, floor(:rand.uniform() * @symbol_count))>>
   end
 
   def get_uniq_name({:via, _, {_, name}}), do: name
@@ -91,8 +86,12 @@ defmodule SetGame.GameServer do
     {:ok, fresh_state(name), timeout()}
   end
 
-  def child_spec(arg) do
-    %{id: __MODULE__, restart: :transient, start: {__MODULE__, :start_link, [arg]}}
+  def child_spec(name) when is_binary(name) do
+    %{id: __MODULE__, restart: :transient, start: {__MODULE__, :start_link, [via_tuple(name)]}}
+  end
+
+  def child_spec(_init_arg) do
+    %{id: __MODULE__, restart: :transient, start: {__MODULE__, :start_link, []}}
   end
 
   @impl true

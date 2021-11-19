@@ -311,6 +311,18 @@ defmodule SetGame.GameServerTest do
     end
   end
 
+  describe "#start_link" do
+    test "starting two games with same name gives the second a random one" do
+      {:ok, pid1} = "hola" |> GameServer.via_tuple() |> GameServer.start_link()
+      {:ok, pid2} = "hola" |> GameServer.via_tuple() |> GameServer.start_link()
+      name1 = GameServer.get_uniq_name(pid1)
+      name2 = GameServer.get_uniq_name(pid2)
+
+      assert name1 == "hola"
+      refute name1 == name2
+    end
+  end
+
   describe "when everything fails" do
     test "data is persisted in ETS" do
       {:ok, pid} = GameServer.start_link()

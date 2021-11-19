@@ -3,23 +3,19 @@ defmodule SetGame.GameSupervisor do
 
   alias SetGame.GameServer
 
-  def start_game() do
-    name = GameServer.find_available_name() |> GameServer.via_tuple()
-
-    case DynamicSupervisor.start_child(
-           __MODULE__,
-           GameServer.child_spec(name)
-         ) do
-      {:ok, _pid, _info} -> {:ok, name}
-      {:ok, _pid} -> {:ok, name}
-      other -> other
-    end
+  def start_game(name \\ :ok) do
+    DynamicSupervisor.start_child(
+      __MODULE__,
+      GameServer.child_spec(name)
+    )
   end
 
-  def stop_game(name) do
-    :ets.delete(:set_game_state, GameServer.get_uniq_name(name))
-    DynamicSupervisor.terminate_child(__MODULE__, pid_from_name(name))
+  def stop_game(name_or_pid) do
+    :ets.delete(:set_game_state, GameServer.get_uniq_name(name_or_pid))
+    DynamicSupervisor.terminate_child(__MODULE__, pid_from_name(name_or_pid))
   end
+
+  defp pid_from_name(pid) when is_pid(pid), do: pid
 
   defp pid_from_name({:via, _, {_, name}}),
     do: pid_from_name(name)
