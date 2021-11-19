@@ -1,18 +1,47 @@
 defmodule SetGame.GameServer do
-  use GenServer
-
+  use GenServer, start: {__MODULE__, :start_link, []}, restart: :transient
   alias SetGame.Board
   alias SetGame.Player
 
   defmodule State do
-    defstruct board: Board.new(), players: [], state: :players_joining
+    defstruct board: Board.new(),
+              name: "",
+              players: [],
+              state: :players_joining
   end
+
+  @symbols '23456789ABCDEFGHJKMNPQRSTUWXYZ'
+  @symbol_count length(@symbols)
 
   # Client
 
-  def start_link(_arg \\ nil) do
-    GenServer.start_link(__MODULE__, %State{})
+  @spec start_link(any()) :: :ignore | {:error, any} | {:ok, pid}
+  def start_link({:via, _, {_, name}} = via_tuple_name \\ via_tuple(generate_name())) do
+    case GenServer.start_link(__MODULE__, fresh_state(name), name: via_tuple_name) do
+      {:error, {:already_started, _pid}} -> start_link()
+      other -> other
+    end
   end
+
+  defp timeout(), do: Application.get_env(:set_game, :timeout)
+
+  defp fresh_state(name) do
+    %State{name: name}
+  end
+
+  defp generate_name() do
+    for _ <- 1..10, into: "", do: <<Enum.at(@symbols, floor(:rand.uniform() * @symbol_count))>>
+  end
+
+  def get_uniq_name({:via, _, {_, name}}), do: name
+
+  def get_uniq_name(pid) when is_pid(pid) do
+    Registry.keys(Registry.SetGame, pid)
+    |> Enum.at(0)
+  end
+
+  @spec via_tuple(any) :: {:via, Registry, {Registry.SetGame, any}}
+  def via_tuple(name), do: {:via, Registry, {Registry.SetGame, name}}
 
   def call_set(pid, %Player{id: player_id}) do
     GenServer.call(pid, {:call_set, player_id})
@@ -20,6 +49,10 @@ defmodule SetGame.GameServer do
 
   def call_set(pid, player_id) do
     GenServer.call(pid, {:call_set, player_id})
+  end
+
+  def deal(pid, num_of_cards \\ 3) do
+    GenServer.call(pid, {:deal, num_of_cards})
   end
 
   def join(pid) do
@@ -48,7 +81,18 @@ defmodule SetGame.GameServer do
 
   # Server
   @impl true
-  def init(arg), do: {:ok, arg}
+  def init(%State{name: name}) do
+    send(self(), {:set_state, name})
+    {:ok, fresh_state(name), timeout()}
+  end
+
+  def child_spec(name) when is_binary(name) do
+    %{id: __MODULE__, restart: :transient, start: {__MODULE__, :start_link, [via_tuple(name)]}}
+  end
+
+  def child_spec(_init_arg) do
+    %{id: __MODULE__, restart: :transient, start: {__MODULE__, :start_link, []}}
+  end
 
   @impl true
   def handle_call(
@@ -58,49 +102,53 @@ defmodule SetGame.GameServer do
       ) do
     case find_player_by_id(state, player_id) do
       nil ->
-        {:reply, {:error, :no_player_found}, state}
+        reply_error(state, {:error, :no_player_found})
 
       player ->
-        {:reply, :ok, %{state | state: {:set_called, player.id}}}
+        reply_success(%{state | state: {:set_called, player.id}})
     end
   end
 
   def handle_call({:call_set, _player_id}, _from, state) do
-    {:reply, {:error, :cannot_call_set}, state}
+    reply_error(state, {:error, :cannot_call_set})
+  end
+
+  def handle_call({:deal, num_of_cards}, _from, %State{board: board} = state) do
+    reply_success(%{state | board: Board.deal(board, num_of_cards)})
   end
 
   def handle_call(:get_state, _from, %State{state: game_state} = state) do
-    {:reply, game_state, state}
+    reply_success(state, game_state)
   end
 
   def handle_call(:join_player, _from, %State{state: :players_joining} = state) do
     player = Player.new(length(state.players))
-    {:reply, player, %{state | players: [player | state.players]}}
+    reply_success(%{state | players: [player | state.players]}, player)
   end
 
   def handle_call(:join_player, _from, state) do
-    {:reply, {:error, :no_new_players_allowed}, state}
+    reply_error(state, {:error, :no_new_players_allowed})
   end
 
   def handle_call({:player, id}, _form, state) do
-    {:reply, find_player_by_id(state, id), state}
+    reply_success(state, find_player_by_id(state, id))
   end
 
   def handle_call(:start_game, _from, %State{state: :players_joining, players: players} = state)
       when length(players) > 0 do
-    {:reply, :ok, %{state | state: :playing, board: Board.deal(state.board, 12)}}
+    reply_success(%{state | state: :playing, board: Board.deal(state.board, 12)})
   end
 
   def handle_call(:start_game, _from, %State{state: :players_joining} = state) do
-    {:reply, {:error, :no_players}, state}
+    reply_error(state, {:error, :no_players})
   end
 
   def handle_call(:start_game, _from, state) do
-    {:reply, {:error, :already_started}, state}
+    reply_error(state, {:error, :already_started})
   end
 
   def handle_call(:table, _from, %State{board: board} = state) do
-    {:reply, board.table, state}
+    reply_success(state, board.table)
   end
 
   def handle_call(
@@ -111,25 +159,58 @@ defmodule SetGame.GameServer do
     with %Player{} <- find_player_by_id(state, player_id),
          true <- Board.cards_are_on_table?(state.board, cards),
          true <- SetGame.Card.are_set?(card_a, card_b, card_c) do
-      {:reply, :ok,
-       state
-       |> Map.put(:state, :playing)
-       |> board_move(cards)
-       |> add_cards_to_player(player_id, cards)}
+      state
+      |> Map.put(:state, :playing)
+      |> board_move(cards)
+      |> add_cards_to_player(player_id, cards)
+      |> reply_success()
     else
       nil ->
-        {:reply, {:error, :no_player_found}, state}
+        reply_error(state, {:error, :no_player_found})
 
       false ->
-        {
-          :reply,
-          {:error, :wrong_move, player_id},
-          state |> Map.put(:state, :playing) |> return_cards_from_player(player_id, 1)
-        }
+        reply_error(
+          state |> Map.put(:state, :playing) |> return_cards_from_player(player_id, 1),
+          {:error, :wrong_move, player_id}
+        )
     end
   end
 
-  def handle_call({:take_set, _, _}, _from, state), do: {:reply, {:error, :set_not_called}, state}
+  def handle_call({:take_set, _, _}, _from, state),
+    do: reply_error(state, {:error, :set_not_called})
+
+  @impl true
+  def handle_info({:set_state, name}, _state_data) do
+    state_data =
+      case :ets.lookup(:set_game_state, name) do
+        [] -> fresh_state(name)
+        [{_key, state}] -> state
+      end
+
+    :ets.insert(:set_game_state, {name, state_data})
+    {:noreply, state_data, timeout()}
+  end
+
+  def handle_info(:timeout, state_data) do
+    {:stop, {:shutdown, :timeout}, state_data}
+  end
+
+  @impl true
+  def terminate({:shutdown, :timeout}, state_data) do
+    :ets.delete(:set_game_state, state_data.name)
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
+
+  defp reply_error(new_state, response) do
+    {:reply, response, new_state, timeout()}
+  end
+
+  defp reply_success(new_state, response \\ :ok) do
+    :ets.insert(:set_game_state, {new_state.name, new_state})
+    {:reply, response, new_state, timeout()}
+  end
 
   defp board_move(%State{} = state, cards), do: %{state | board: Board.move(state.board, cards)}
 
